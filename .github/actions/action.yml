@@ -1,0 +1,182 @@
+name: 'Boilerplate Shared Composite Action'
+description: 'Boilerplate Shared Composite Action: Run Tests Inside Docker Container'
+
+runs:
+    using: 'composite'
+    steps:
+        - name: 'BrowserStack Env. Setup'
+          if: ${{ env.BROWSERSTACK_USER && env.BROWSERSTACK_ACCESS_KEY }}
+          uses: browserstack/github-actions/setup-env@master
+          with:
+            username: ${{env.BROWSERSTACK_USER}}
+            access-key: ${{env.BROWSERSTACK_ACCESS_KEY}}
+
+        - name: 'BrowserStack Local Tunnel Setup'
+          if: ${{ env.BROWSERSTACK_USER && env.BROWSERSTACK_ACCESS_KEY }}
+          uses: browserstack/github-actions/setup-local@master
+          with:
+            local-testing: start
+            local-identifier: random
+            local-args: --force-local --force-proxy --local-proxy-host 127.0.0.1 --local-proxy-port 9090
+
+        - name: 'Login to Container registry'
+          run: |
+            echo "${{ env.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          shell: bash
+
+        - name: 'Pull Dockerfile from Github Registry'
+          run: |
+            docker pull ghcr.io/pfizer/boilerplate-docker-image:latest
+          shell: bash
+
+        - name: 'Upload app to BrowserStack'
+          if: ${{ env.BROWSERSTACK_USER && env.BROWSERSTACK_ACCESS_KEY && env.TYPE == 'MOBILE' && env.APP_BINARY }}
+          run: |
+            if [ -z "$TEST_FOLDER" ]; then
+              export TEST_FOLDER="./"
+            fi
+
+            cd $TEST_FOLDER
+            curl -u "${{env.BROWSERSTACK_USER}}:${{env.BROWSERSTACK_ACCESS_KEY}}" \
+              -X POST "https://api-cloud.browserstack.com/app-automate/upload" \
+              -F "file=@${{env.APP_BINARY}}" \
+              -F "custom_id=${{env.BROWSERSTACK_CUSTOM_ID}}"
+          shell: bash
+
+        - name: 'Run tests'
+          env:
+              PROXY_PORT: "9090"
+              BOILERPLATE_PATH: /home/bp_user/boilerplate
+          run: |
+            if [ -z "$TEST_FOLDER" ]; then
+              echo "TEST_FOLDER environment variable not set, using default value"
+              export TEST_FOLDER="./"
+              echo "TEST_FOLDER=./" >> $GITHUB_ENV
+            else
+              echo "The TEST_FOLDER environment variable is set to $TEST_FOLDER"
+            fi
+
+            cd $TEST_FOLDER
+            CONFIGURATION=./configs/${{ env.CAPABILITIES_CONFIG }}
+            echo '${{ toJSON(env) }}' > output.json
+            jq -r 'to_entries | map("\(.key)=\(.value|tostring)") | .[]' output.json > env_vars.txt
+
+            if [ "${{ env.TYPE }}" == "UI" ] && [ "${{ env.SERVER }}" == "BrowserStack" ]
+            then
+            docker run --env-file env_vars.txt --net host \
+              -v $(pwd)/configs/:$BOILERPLATE_PATH/configs/ \
+              -v $(pwd)/backend/:$BOILERPLATE_PATH/backend/ \
+              -v $(pwd)/frontend/:$BOILERPLATE_PATH/frontend/ \
+              -v $(pwd)/output/:$BOILERPLATE_PATH/output/ \
+              -v $(pwd)/test_data/:$BOILERPLATE_PATH/test_data/ \
+              ghcr.io/pfizer/boilerplate-docker-image:latest \
+              /bin/bash -c "sudo chmod -R 777 $BOILERPLATE_PATH && \
+              nohup mitmdump -p $PROXY_PORT -H '/cf-access-client-id/${{ env.CF_KEY_ID }}' -H '/cf-access-client-secret/${{ env.CF_KEY_SECRET }}' > /dev/null 2>&1 & \
+              python -m pytest -v --driver Remote \
+              --selenium-host '${{env.BROWSERSTACK_USER}}:${{env.BROWSERSTACK_ACCESS_KEY}}@hub-cloud.browserstack.com' \
+              --proxy-url=127.0.0.1:$PROXY_PORT \
+              --variables $CONFIGURATION \
+              --tags='${{env.TAGS}}' \
+              --html=./output/reports/ \
+              --self-contained-html"
+            fi
+
+            if [ "${{ env.TYPE }}" == "UI" ] && [ "${{ env.SERVER }}" == "GitHub Runner" ]
+            then
+
+            # Sets the host name that will be added to the container hosts file.
+            if [-z "${{ env.LITE_SITE_HOST }}"]; then
+              echo "LITE_SITE_HOST=host.docker.internal" >> $GITHUB_ENV
+            fi
+            
+            docker run --env-file env_vars.txt \
+              --net host \
+              --add-host ${{ env.LITE_SITE_HOST }}:host-gateway \
+              -v $(pwd)/configs/:$BOILERPLATE_PATH/configs/ \
+              -v $(pwd)/backend/:$BOILERPLATE_PATH/backend/ \
+              -v $(pwd)/frontend/:$BOILERPLATE_PATH/frontend/ \
+              -v $(pwd)/output/:$BOILERPLATE_PATH/output/ \
+              -v $(pwd)/test_data/:$BOILERPLATE_PATH/test_data/ \
+              ghcr.io/pfizer/boilerplate-docker-image:latest \
+              /bin/bash -c "sudo chmod -R 777 $BOILERPLATE_PATH && \
+              nohup mitmdump -p $PROXY_PORT -H '/cf-access-client-id/${{ env.CF_KEY_ID }}' -H '/cf-access-client-secret/${{ env.CF_KEY_SECRET }}' >/dev/null 2>&1 & \
+              python -m pytest -v --tags='${{env.TAGS}}' \
+              --proxy-url=127.0.0.1:$PROXY_PORT -n=1 \
+              --driver=${{ env.BROWSER }} \
+              --capability headless True --html=./output/reports/ --self-contained-html"
+            fi
+
+            if [ "${{ env.TYPE }}" == "API" ] && [ "${{ env.SERVER }}" == "GitHub Runner" ]
+            then
+            docker run --env-file env_vars.txt \
+              -v $(pwd)/configs/:$BOILERPLATE_PATH/configs/ \
+              -v $(pwd)/backend/:$BOILERPLATE_PATH/backend/ \
+              -v $(pwd)/frontend/:$BOILERPLATE_PATH/frontend/ \
+              -v $(pwd)/output/:$BOILERPLATE_PATH/output/ \
+              -v $(pwd)/test_data/:$BOILERPLATE_PATH/test_data/ \
+              ghcr.io/pfizer/boilerplate-docker-image:latest \
+              /bin/bash -c "sudo chmod -R 777 $BOILERPLATE_PATH && \
+              python -m pytest -v --tags='${{env.TAGS}}' --html=./output/reports/"
+            fi
+
+            if [ "${{ env.TYPE }}" == "MOBILE" ] && [ "${{ env.SERVER }}" == "BrowserStack" ]
+            then
+            docker run --env-file env_vars.txt --net host \
+              -v $(pwd)/configs/:$BOILERPLATE_PATH/configs/ \
+              -v $(pwd)/backend/:$BOILERPLATE_PATH/backend/ \
+              -v $(pwd)/frontend/:$BOILERPLATE_PATH/frontend/ \
+              -v $(pwd)/output/:$BOILERPLATE_PATH/output/ \
+              -v $(pwd)/test_data/:$BOILERPLATE_PATH/test_data/ \
+              ghcr.io/pfizer/boilerplate-docker-image:latest \
+              /bin/bash -c "sudo chmod -R 777 $BOILERPLATE_PATH && \
+              python -m pytest -v --driver Appium \
+              --selenium-host '${{env.BROWSERSTACK_USER}}:${{env.BROWSERSTACK_ACCESS_KEY}}@hub-cloud.browserstack.com' \
+              --variables $CONFIGURATION \
+              --tags='${{env.TAGS}}' \
+              --html=./output/reports/ \
+              --self-contained-html"
+            fi
+
+            if [ "${{ env.TYPE }}" == "UI" ] && [ "${{ env.SERVER }}" == "Docker" ]
+            then
+
+            [ -d "$(pwd)/configs/" ] && cp -r $(pwd)/configs/ /bp_shared_volume/ || echo "configs folder does not exist"
+            [ -d "$(pwd)/backend/" ] && cp -r $(pwd)/backend/ /bp_shared_volume/ || echo "backend folder does not exist"
+            [ -d "$(pwd)/frontend/" ] && cp -r $(pwd)/frontend/ /bp_shared_volume/ || echo "frontend folder does not exist"
+            [ -d "$(pwd)/output/" ] && cp -r $(pwd)/output/ /bp_shared_volume/ || echo "output folder does not exist"
+            [ -d "$(pwd)/test_data/" ] && cp -r $(pwd)/test_data/ /bp_shared_volume/ || echo "test_data folder does not exist"
+
+            echo "ARTIFACT_PATH=/bp_shared_volume/output/" >> $GITHUB_ENV
+
+            docker run --env-file env_vars.txt \
+              --privileged \
+              --net container:$HOSTNAME \
+              -v /bp_shared_volume/configs/:$BOILERPLATE_PATH/configs \
+              -v /bp_shared_volume/frontend/:$BOILERPLATE_PATH/frontend/ \
+              -v /bp_shared_volume/output/:$BOILERPLATE_PATH/output/ \
+              -v /bp_shared_volume/test_data/:$BOILERPLATE_PATH/test_data \
+              -v /bp_shared_volume/backend/:$BOILERPLATE_PATH/backend/ \
+              ghcr.io/pfizer/boilerplate-docker-image:latest \
+              /bin/bash -c "sudo chmod -R 777 $BOILERPLATE_PATH && \
+              python -m pytest -v \
+              --tags='${{env.TAGS}}' \
+              --driver=${{ env.BROWSER }} \
+              --capability headless True \
+              --html=./output/reports/ \
+              --self-contained-html \
+              --json=./output/json/json_report.json"
+            fi
+          shell: bash
+
+        -   name: 'BrowserStackLocal Stop'
+            uses: browserstack/github-actions/setup-local@master
+            with:
+                local-testing: stop
+            if: ${{ always() && env.BROWSERSTACK_USERNAME && env.BROWSERSTACK_ACCESS_KEY }}
+
+        -   name: 'Upload pytest test results'
+            uses: actions/upload-artifact@v3.1.3
+            with:
+                name: ${{ env.HTML_REPORT || 'pytest-results' }}
+                path: ${{ env.ARTIFACT_PATH || format('{0}output/', env.TEST_FOLDER) }}
+            if: ${{ always() }}
