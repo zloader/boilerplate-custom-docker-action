@@ -47,6 +47,7 @@ runs:
           env:
               PROXY_PORT: "9090"
               BOILERPLATE_PATH: /home/bp_user/boilerplate
+              WAIT_TIME: "5"
           run: |
             if [ -z "$TEST_FOLDER" ]; then
               echo "TEST_FOLDER environment variable not set, using default value"
@@ -93,7 +94,7 @@ runs:
               -v $(pwd)/test_data/:$BOILERPLATE_PATH/test_data/ \
               ghcr.io/pfizer/boilerplate-docker-image:latest \
               /bin/bash -c "sudo chmod -R 777 $BOILERPLATE_PATH && \
-              nohup mitmdump -p $PROXY_PORT --ssl-insecure -H '/cf-access-client-id/${{ env.CF_KEY_ID }}' -H '/cf-access-client-secret/${{ env.CF_KEY_SECRET }}' >/dev/null 2>&1 & \
+              nohup mitmdump -p $PROXY_PORT --ssl-insecure -H '/cf-access-client-id/${{ env.CF_KEY_ID }}' -H '/cf-access-client-secret/${{ env.CF_KEY_SECRET }}' >/dev/null 2>&1 & sleep $WAIT_TIME && \
               python -m pytest -v --tags='${{env.TAGS}}' \
               --proxy-url=127.0.0.1:$PROXY_PORT -n=1 \
               --driver=${{ env.BROWSER }} \
