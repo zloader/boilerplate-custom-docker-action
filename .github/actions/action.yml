@@ -48,7 +48,6 @@ runs:
               PROXY_PORT: "9090"
               BOILERPLATE_PATH: /home/bp_user/boilerplate
               WAIT_TIME: "5"
-              JSON_REPORT_FILE_NAME: ${{ format('{0}-report.json', github.event.repository.name) }}
           run: |
             if [ -z "$TEST_FOLDER" ]; then
               echo "TEST_FOLDER environment variable not set, using default value"
@@ -56,6 +55,13 @@ runs:
               echo "TEST_FOLDER=./" >> $GITHUB_ENV
             else
               echo "The TEST_FOLDER environment variable is set to $TEST_FOLDER"
+            fi
+            
+            if [ -z "$JSON_REPORT_FILE_NAME" ]; then
+              echo "Explicitly set the JSON_REPORT_FILE_NAME environment variable"
+              export JSON_REPORT_FILE_NAME="${{ format('{0}-report.json', github.event.repository.name) }}"
+              echo "JSON_REPORT_FILE_NAME=$JSON_REPORT_FILE_NAME" >> $GITHUB_ENV
+              echo "The JSON_REPORT_FILE_NAME defined as: $JSON_REPORT_FILE_NAME"
             fi
 
             cd $TEST_FOLDER
@@ -164,7 +170,7 @@ runs:
               --capability headless True \
               --html=./output/reports/ \
               --self-contained-html \
-              --json=./output/json/json_report.json"
+              --json=./output/reports/$JSON_REPORT_FILE_NAME"
             fi
           shell: bash
 
