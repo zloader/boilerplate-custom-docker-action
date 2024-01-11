@@ -101,7 +101,7 @@ runs:
               --capability headless True \
               --html=./output/reports/ \
               --self-contained-html \
-              --json=./output/json/json_report.json"
+              --json=./output/reports/json_report.json"
             fi
 
             if [ "${{ env.TYPE }}" == "API" ] && [ "${{ env.SERVER }}" == "GitHub Runner" ]
