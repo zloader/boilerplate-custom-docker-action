@@ -83,15 +83,9 @@ runs:
 
             if [ "${{ env.TYPE }}" == "UI" ] && [ "${{ env.SERVER }}" == "GitHub Runner" ]
             then
-
-            # Sets the host name that will be added to the container hosts file.
-            if [-z "${{ env.LITE_SITE_HOST }}"]; then
-              echo "LITE_SITE_HOST=host.docker.internal" >> $GITHUB_ENV
-            fi
             
             docker run --env-file env_vars.txt \
               --net host \
-              --add-host ${{ env.LITE_SITE_HOST }}:host-gateway \
               -v $(pwd)/configs/:$BOILERPLATE_PATH/configs/ \
               -v $(pwd)/backend/:$BOILERPLATE_PATH/backend/ \
               -v $(pwd)/frontend/:$BOILERPLATE_PATH/frontend/ \
@@ -99,7 +93,7 @@ runs:
               -v $(pwd)/test_data/:$BOILERPLATE_PATH/test_data/ \
               ghcr.io/pfizer/boilerplate-docker-image:latest \
               /bin/bash -c "sudo chmod -R 777 $BOILERPLATE_PATH && \
-              nohup mitmdump -p $PROXY_PORT -H '/cf-access-client-id/${{ env.CF_KEY_ID }}' -H '/cf-access-client-secret/${{ env.CF_KEY_SECRET }}' >/dev/null 2>&1 & \
+              nohup mitmdump -p $PROXY_PORT --ssl-insecure -H '/cf-access-client-id/${{ env.CF_KEY_ID }}' -H '/cf-access-client-secret/${{ env.CF_KEY_SECRET }}' >/dev/null 2>&1 & sleep 5 && \
               python -m pytest -v --tags='${{env.TAGS}}' \
               --proxy-url=127.0.0.1:$PROXY_PORT -n=1 \
               --driver=${{ env.BROWSER }} \
